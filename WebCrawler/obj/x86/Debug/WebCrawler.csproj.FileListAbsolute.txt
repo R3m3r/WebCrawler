@@ -1,0 +1,5 @@
+B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\bin\Debug\WebCrawler.exe
+B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\bin\Debug\WebCrawler.pdb
+B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\obj\x86\Debug\WebCrawler.csprojResolveAssemblyReference.cache
+B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\obj\x86\Debug\WebCrawler.exe
+B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\obj\x86\Debug\WebCrawler.pdb
