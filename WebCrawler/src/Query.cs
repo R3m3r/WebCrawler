@@ -36,7 +36,7 @@ namespace WebCrawler
             return true;
         }
 
-        public bool ExecuteQuery(DatabaseConnection database, ref MySqlDataReader reader)
+        public bool ExecuteQuery(DatabaseConnection database, out MySqlDataReader reader)
         {
             reader = null;
             try
