@@ -6,135 +6,48 @@ using System.IO;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Web;
-using System.Web.UI;
 using System.Diagnostics;
 using MySql.Data.MySqlClient;
 
 namespace WebCrawler
 {
-    class LinkItem
-    {
-        public string Protocol = "";
-        public string Domain = "";
-        public string Local_Path = "";
-        public string File_Extension = "";
-        public string Parent_Url = "";
-        public int Depth = 0;
-        public string Href 
-        {
-            get
-            {
-                return Protocol + "://" + Domain + Local_Path; 
-            }
-            set
-            {
-                GetUrlInfo(value);
-            }
-        }
-
-        public LinkItem(string href = "", int depth = 0, string parent = "")
-        {
-            GetUrlInfo(href);
-            Depth = depth;
-            Parent_Url = parent;
-        }
-
-        public void GetUrlInfo(string url)
-        {
-            try
-            {
-                if (!url.StartsWith("http") && !url.StartsWith("https"))
-                    url = "http://" + url;
-                Uri uri = new Uri(url);
-                Domain = uri.Host;
-                Local_Path = uri.AbsolutePath;
-                File_Extension = Path.GetExtension(uri.AbsolutePath);
-                Protocol = uri.Scheme;
-            }
-            catch (UriFormatException)
-            {
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
-        }
-    }
-
-    class SqlStack
-    {
-        private DatabaseConnection db = DatabaseConnection.Instance;
-
-        public void Push(LinkItem item)
-        {
-            Query query_insert = new Query(string.Format("INSERT INTO Stack_Url (url, depth, parent_url) VALUES ('{0}', '{1}', '{2}')", item.Href, item.Depth, item.Parent_Url));
-            query_insert.ExecuteQuery(db);
-        }
-
-        public LinkItem Pop()
-        {
-            LinkItem item = null;
-            Query query_select = new Query("SELECT * FROM stack_url where depth = (SELECT min(depth) FROM stack_url)");
-            MySqlDataReader reader;
-            if (query_select.ExecuteQuery(db, out reader))
-            {
-                reader.Read();
-                int id = reader.GetInt32(0);
-                string href = reader.GetString(1);
-                int depth = reader.GetInt32(2);
-                string parent = reader.GetString(3);
-                item = new LinkItem(href, depth, parent);
-                if (reader != null)
-                    reader.Close();
-                Query query_delete = new Query(string.Format("DELETE FROM stack_url WHERE id = {0}", id));
-                query_delete.ExecuteQuery(db);
-            }
-            return item;
-        }
-
-        public int Count()
-        {
-            int ret = 0;
-            Query query_select = new Query("SELECT COUNT(*) FROM Stack_Url");
-            MySqlDataReader reader;
-            if (query_select.ExecuteQuery(db, out reader))
-            {
-                reader.Read();
-                ret = reader.GetInt32(0);
-            }
-            if (reader != null)
-                reader.Close();
-            return ret;
-        }
-    
-    }
-
     class Program
     {
         static readonly int DEFAULT_MAX_DEPTH = 1;
         static readonly int DEFAULT_COMPUTATION_TIME = 0;
+
+        static readonly string DEFAULT_HOSTNAME = "localhost";
+        static readonly string DEFAULT_USERNAME = "root";
+        static readonly string DEFAULT_PASSWORD = "";
+        static readonly string DEFAULT_DB_NAME = "websites";
         
         static DatabaseConnection db = DatabaseConnection.Instance;
-        static string host = "localhost";
-        static string username = "root";
-        static string password = "";
-        static string db_name = "websites";
+        static string host = DEFAULT_HOSTNAME;
+        static string username = DEFAULT_USERNAME;
+        static string password = DEFAULT_PASSWORD;
+        static string db_name = DEFAULT_DB_NAME;
 
         static SqlStack stack = new SqlStack();
         static DirectoryInfo output_directory = new DirectoryInfo("./output");
 
         static List<string> hostnames = new List<string>();
         static List<string> keywords = new List<string>();
-        static int max_depth = 1;
-        static int computation_time = 0;
+        static int max_depth = DEFAULT_MAX_DEPTH;
+        static int computation_time = DEFAULT_COMPUTATION_TIME;
 
+        static Process currentProc = Process.GetCurrentProcess();
+        
         enum Parser_Mode
         {
             P_None,
             P_Depth,
             P_Hosts,
             P_Keys,
-            P_ComputationTime
+            P_ComputationTime,
+            P_DBName,
+            P_DBHost,
+            P_DBUsername,
+            P_DBPassword
         }
 
         static void Main(string[] args)
@@ -157,7 +70,7 @@ namespace WebCrawler
             /** creation / selection of db **/
             Query query_create_table = new Query("CREATE TABLE Parsed_Url (url VARCHAR(300) NOT NULL PRIMARY KEY, local_path VARCHAR(300), parent VARCHAR(300) NOT NULL,"
                                                  + " depth INT(11)  NOT NULL, discovered_urls INT(11) NOT NULL)");
-            Query query_stack_db = new Query("CREATE TABLE Stack_Url (id int NOT NULL AUTO_INCREMENT, url VARCHAR(300) NOT NULL, depth int, parent_url VARCHAR(300), PRIMARY KEY (id))");
+            Query query_stack_db = new Query("CREATE TABLE Stack_Url (url VARCHAR(300) NOT NULL, parent_url VARCHAR(300), depth int, PRIMARY KEY (url))");
 
             if (db.Connect(host, username, password, db_name))
             {
@@ -228,6 +141,18 @@ namespace WebCrawler
                         case "-resume":
                             resume = true;
                             break;
+                        case "-dbhost":
+                            p_mode = Parser_Mode.P_DBHost;
+                            break;
+                        case "-dbusername":
+                            p_mode = Parser_Mode.P_DBUsername;
+                            break;
+                        case "-dbname":
+                            p_mode = Parser_Mode.P_DBName;
+                            break;
+                        case "-dbpassword":
+                            p_mode = Parser_Mode.P_DBPassword;
+                            break;
                     }
 
                     if (!string.IsNullOrEmpty(arg))
@@ -236,6 +161,14 @@ namespace WebCrawler
                             hostnames.Add(arg);
                         if (p_mode == Parser_Mode.P_Keys && !arg.Equals("-keywords"))
                             keywords.Add(arg);
+                        if (p_mode == Parser_Mode.P_DBHost && !arg.Equals("-dbhost"))
+                            host = arg;
+                        if (p_mode == Parser_Mode.P_DBName && !arg.Equals("-dbname"))
+                            host = arg;
+                        if (p_mode == Parser_Mode.P_DBPassword && !arg.Equals("-dbpassword"))
+                            host = arg;
+                        if (p_mode == Parser_Mode.P_DBUsername && !arg.Equals("-dbusername"))
+                            host = arg;
                         if (p_mode == Parser_Mode.P_Depth && !Int32.TryParse(arg, out max_depth))
                             max_depth = DEFAULT_MAX_DEPTH;
                         if (p_mode == Parser_Mode.P_ComputationTime && !Int32.TryParse(arg, out computation_time))
@@ -280,7 +213,7 @@ namespace WebCrawler
 
             Message.ShowMessage(message, Verbosity_Level.E_Notice);
             Message.ShowMessage("***************************************************", Verbosity_Level.E_Notice);
-   
+
             DateTime start_time = DateTime.Now;
             while (stack.Count() > 0)
             {
@@ -292,7 +225,10 @@ namespace WebCrawler
                     break;
                 }
                 ParsePage(stack.Pop(), keywords, max_depth);
+                ShowMemoryInfo();
             }
+
+            ShowMemoryInfo(true);
         }
 
         public static void ParsePage(LinkItem item, List<string> keywords, int max_depth)
@@ -454,6 +390,33 @@ namespace WebCrawler
                     list.Add(i);
             }
             return list;
+        }
+
+        private static void ShowMemoryInfo(bool showPeak = false)
+        {
+            // Refresh the current process property values.
+            currentProc.Refresh();
+
+            // Display current process statistics.
+            Message.ShowMessage("  Physical memory usage: {0}",
+                Verbosity_Level.E_Notice, currentProc.WorkingSet64 / 1024);
+            Message.ShowMessage("  PagedSystemMemorySize64: {0}",
+                Verbosity_Level.E_Notice, currentProc.PagedSystemMemorySize64 / 1024);
+            Message.ShowMessage("  PagedMemorySize64: {0}",
+               Verbosity_Level.E_Notice, currentProc.PagedMemorySize64 / 1024);
+
+            Message.ShowMessage("-------------------------------------", Verbosity_Level.E_Notice);
+
+            if (showPeak)
+            {
+                // Display peak memory statistics for the process.
+                Message.ShowMessage("Peak physical memory usage of the process: {0}",
+                    Verbosity_Level.E_Notice, currentProc.PeakWorkingSet64 / 1024);
+                Message.ShowMessage("Peak paged memory usage of the process: {0}",
+                    Verbosity_Level.E_Notice, currentProc.PeakPagedMemorySize64 / 1024);
+                Message.ShowMessage("Peak virtual memory usage of the process: {0}",
+                    Verbosity_Level.E_Notice, currentProc.PeakVirtualMemorySize64 / 1024);
+            }
         }
     }
 }

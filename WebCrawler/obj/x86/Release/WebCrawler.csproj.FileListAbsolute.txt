@@ -1,5 +1,0 @@
-B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\bin\Release\WebCrawler.exe.config
-B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\bin\Release\WebCrawler.exe
-B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\bin\Release\WebCrawler.pdb
-B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\obj\x86\Release\WebCrawler.exe
-B:\Dropbox\Università\Compilatori\progetti\WebCrawler\WebCrawler\obj\x86\Release\WebCrawler.pdb
