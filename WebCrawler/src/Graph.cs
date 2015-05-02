@@ -2,85 +2,105 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using MySql.Data.MySqlClient;
 
 /// <summary>Represents a directed unweighted graph structure
 /// </summary>
 namespace WebCrawler
 {
-    public class Graph<T>
+    public class Graph
     {
-        /*
-        // Contains the child nodes for each vertex of the graph
-        // assuming that the vertices are numbered 0 ... Size-1
-        private List<T>[] childNodes;
+        private DatabaseConnection db = DatabaseConnection.Instance;
+        private List<int> connected_components;
+        private int current_list_element;
 
-        /// <summary>Constructs an empty graph of given size</summary>
-        /// <param name="size">number of vertices</param>
-        public Graph(int size)
+        public Graph()
         {
-            childNodes = new List<T>[size];
-            for (int i = 0; i < size; i++)
-            {
-                // Assing an empty list of adjacents for each vertex
-                childNodes[i] = new List<T>();
-            }
-        }
-
-        /// <summary>Constructs a graph by given list of
-        /// child nodes (successors) for each vertex</summary>
-        /// <param name="childNodes">children for each node</param>
-        public Graph(List<T>[] childNodes)
-        {
-            this.childNodes = childNodes;
-        }
-
-        /// <summary>
-        /// Returns the size of the graph (number of vertices)
-        /// </summary>
-        public int Size
-        {
-            get { return childNodes.Length; }
-        }
-
-        /// <summary>Adds new edge from u to v</summary>
-        /// <param name="u">the starting vertex</param>
-        /// <param name="v">the ending vertex</param>
-        public void AddEdge(T u, T v)
-        {
-
-            childNodes[u].Add(v);
-        }
-
-        /// <summary>Removes the edge from u to v if such exists
-        /// </summary>
-        /// <param name="u">the starting vertex</param>
-        /// <param name="v">the ending vertex</param>
-        public void RemoveEdge(int u, int v)
-        {
-            childNodes[u].Remove(v);
-        }
-
-        /// <summary>
-        /// Checks whether there is an edge between vertex u and v
-        /// </summary>
-        /// <param name="u">the starting vertex</param>
-        /// <param name="v">the ending vertex</param>
-        /// <returns>true if there is an edge between
-        /// vertex u and vertex v</returns>
-
-        public bool HasEdge(T u, T v)
-        {
-            bool hasEdge = u.Contains(v);
-            return hasEdge;
+            connected_components = new List<int>();
+            current_list_element = 0;
         }
 
         /// <summary>Returns the successors of a given vertex
         /// </summary>
         /// <param name="v">the vertex</param>
         /// <returns>list of all successors of vertex v</returns>
-        public IList<int> GetSuccessors(int v)
+        public List<LinkItem> GetSuccessors(LinkItem v)
         {
-            return childNodes[v];
-        }*/
+            List<LinkItem> item = new List<LinkItem>();
+            Query query_select = new Query(String.Format("SELECT url, parent FROM parsed_url where parent = '{0}'", v.Href));
+            MySqlDataReader reader;
+            if (query_select.ExecuteQuery(db, out reader))
+            {
+                while (reader.Read())
+                {
+                    string href = reader.GetString(0);
+                    string parent_url = reader.GetString(0);
+                    item.Add(new LinkItem(href, 0, parent_url));
+                }
+                if (reader != null)
+                    reader.Close();
+            }
+            return item;
+        }
+
+
+        public bool IsVisited(LinkItem v)
+        {
+            Query query_select = new Query(String.Format("SELECT visited FROM parsed_url where url = '{0}'", v.Href));
+            MySqlDataReader reader;
+            bool isVisited = false;
+            if (query_select.ExecuteQuery(db, out reader))
+            {
+                if (reader.Read())
+                    isVisited = reader.GetBoolean(0);
+            }
+            if (reader != null)
+                reader.Close();
+            return isVisited;
+        }
+
+        public void SetVisited(LinkItem v)
+        {
+            Query query_update = new Query(String.Format("UPDATE parsed_url SET visited = true WHERE url = '{0}'", v.Href));
+            query_update.ExecuteQuery(db);
+        }
+
+        public List<int> DFS(List<LinkItem> vertices)
+        { 
+            Query reset = new Query("UPDATE parsed_url SET visited = false");
+            reset.ExecuteQuery(db);
+            connected_components.Clear();
+            connected_components.Add(0);
+            current_list_element = 0;
+
+            foreach (LinkItem v in vertices)
+            {
+                if (!IsVisited(v))
+                {
+                    TraverseDFS(v);
+                    current_list_element++;
+                    connected_components.Add(0);
+                }
+            }
+
+            for (int i = 0; i < connected_components.Count; i++)
+            {
+                if (connected_components[i] <= 0)
+                    connected_components.RemoveAt(i);
+            }
+
+            return connected_components;
+        }
+
+        private void TraverseDFS(LinkItem v)
+        {
+            if (!IsVisited(v))
+            {
+                SetVisited(v);
+                connected_components[current_list_element]++;
+                foreach (LinkItem child in GetSuccessors(v))
+                    TraverseDFS(child);
+            }
+        }
     }
 }

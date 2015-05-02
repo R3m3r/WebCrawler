@@ -11,7 +11,7 @@ using MySql.Data.MySqlClient;
 
 namespace WebCrawler
 {
-    class LinkItem
+    public class LinkItem
     {
         public string Protocol = "";
         public string Domain = "";
@@ -58,9 +58,14 @@ namespace WebCrawler
                 Console.WriteLine(ex.Message);
             }
         }
+
+        public override string ToString()
+        {
+            return Href;
+        }
     }
 
-    class SqlStack
+    public class SqlStack
     {
         private DatabaseConnection db = DatabaseConnection.Instance;
 
