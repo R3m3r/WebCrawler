@@ -15,6 +15,7 @@ namespace WebCrawler
     {
         static readonly int DEFAULT_MAX_DEPTH = 1;
         static readonly int DEFAULT_COMPUTATION_TIME = 0;
+        static readonly string[] domain_to_search = { ".org", ".com", ".edu", ".it", ".uk", ".dk", ".de", ".se" };
 
         static readonly string DEFAULT_HOSTNAME = "localhost";
         static readonly string DEFAULT_USERNAME = "root";
@@ -54,6 +55,7 @@ namespace WebCrawler
         {
             Message.Verbosity = Verbosity_Level.E_Notice | Verbosity_Level.E_Error;
             Parser_Mode p_mode = Parser_Mode.P_None;
+            List<LinkItem> starting_nodes = new List<LinkItem>();
             bool resume = false;
 
             /** creation of directory output **/
@@ -69,7 +71,7 @@ namespace WebCrawler
 
             /** creation / selection of db **/
             Query query_create_table = new Query("CREATE TABLE Parsed_Url (url VARCHAR(300) NOT NULL PRIMARY KEY, local_path VARCHAR(300), parent VARCHAR(300) NOT NULL,"
-                                                 + " depth INT(11)  NOT NULL, discovered_urls INT(11) NOT NULL)");
+                                                 + " depth INT(11)  NOT NULL, discovered_urls INT(11) NOT NULL, visited BOOLEAN)");
             Query query_stack_db = new Query("CREATE TABLE Stack_Url (url VARCHAR(300) NOT NULL, parent_url VARCHAR(300), depth int, PRIMARY KEY (url))");
 
             if (db.Connect(host, username, password, db_name))
@@ -199,8 +201,11 @@ namespace WebCrawler
 
             /** push the input url **/
             foreach (string host_url in hostnames)
-                stack.Push(new LinkItem(host_url));
-
+            {
+                LinkItem link = new LinkItem(host_url);
+                starting_nodes.Add(link);
+                stack.Push(link);
+            }
             Message.ShowMessage("***************************************************", Verbosity_Level.E_Notice);
 
             string message = "Parsing urls ";
@@ -220,15 +225,55 @@ namespace WebCrawler
                 DateTime current_time = DateTime.Now;
                 var diffencence_mins = (current_time - start_time).TotalMinutes;
                 if (computation_time > 0 && diffencence_mins > computation_time)
-                {
-                    Message.ShowMessage("Task Completed! Exiting...", Verbosity_Level.E_Notice);
                     break;
-                }
                 ParsePage(stack.Pop(), keywords, max_depth);
                 ShowMemoryInfo();
             }
-
             ShowMemoryInfo(true);
+
+            /** Connected graph components and diameters **/
+            Graph graph = new Graph();
+            List<int> connected_components = graph.DFS(starting_nodes);
+            int diameter = connected_components[0];
+            foreach (int component in connected_components)
+                if (diameter < component)
+                    diameter = component;
+            Message.ShowMessage("Connected components: {0}", Verbosity_Level.E_Notice, connected_components.Count);
+            Message.ShowMessage("Max diameter of graph: {0}", Verbosity_Level.E_Notice, diameter);
+
+            /** discovered and parsed urls **/
+            Query disc_url_query = new Query(String.Format("SELECT SUM(discovered_urls) AS TotalDiscoveredUrls FROM parsed_url"));
+            Query parsed_url_query =  new Query(String.Format("SELECT COUNT(*) FROM parsed_url"));
+
+            disc_url_query.ExecuteQueryReader(db);
+            int discovered_urls = disc_url_query.GetInt32(0, true);
+
+            parsed_url_query.ExecuteQueryReader(db);
+            int parsed_url = parsed_url_query.GetInt32(0, true);
+            
+            Message.ShowMessage("Discovered urls: {0}", Verbosity_Level.E_Notice, discovered_urls);
+            Message.ShowMessage("Parsed urls: {0}", Verbosity_Level.E_Notice, parsed_url);
+
+            /** stats for domains **/
+            foreach (string domain in domain_to_search)
+            {
+                Query query_domain_stats = new Query(String.Format("SELECT COUNT(*) FROM parsed_url WHERE url LIKE '%{0}%'", domain));
+                query_domain_stats.ExecuteQueryReader(db);
+                int domain_count = query_domain_stats.GetInt32(0, true);
+                Message.ShowMessage("Domains {0} discovered: {1}", Verbosity_Level.E_Notice, domain, domain_count);
+            }
+
+            /** stats of depths **/
+            for (int i = 1; i < 4; i++)
+            {
+                Query query_depth_stats = new Query(String.Format("SELECT COUNT(*) FROM parsed_url WHERE depth = {0}", i));
+                query_depth_stats.ExecuteQueryReader(db);
+                int depth_count = query_depth_stats.GetInt32(0, true);
+                Message.ShowMessage("Domains of depth {0} discovered: {1}", Verbosity_Level.E_Notice, i, depth_count);
+            }
+
+            Message.ShowMessage("***************************************************", Verbosity_Level.E_Notice);
+            Message.ShowMessage("Task Completed! Exiting...", Verbosity_Level.E_Notice);
         }
 
         public static void ParsePage(LinkItem item, List<string> keywords, int max_depth)
@@ -248,8 +293,8 @@ namespace WebCrawler
                             Console.WriteLine("Parsing page {0} with depth {1}", item.Href, item.Depth);
                             if (!reader.IsClosed)
                                 reader.Close();
-                            Query query_insert = new Query(string.Format("INSERT INTO Parsed_Url VALUES ('{0}', '{1}', '{2}', {3}, {4})", 
-                                                                item.Href, item.Local_Path, item.Parent_Url, item.Depth, 0));
+                            Query query_insert = new Query(string.Format("INSERT INTO parsed_url (url, local_path, parent, depth) VALUES ('{0}', '{1}', '{2}', {3});", 
+                                                                item.Href, item.Local_Path, item.Parent_Url, item.Depth));
                             query_insert.ExecuteQuery(db);
                             html_code = ReadTextFromUrl(item.Href);
                         }
@@ -392,7 +437,7 @@ namespace WebCrawler
             return list;
         }
 
-        private static void ShowMemoryInfo(bool showPeak = false)
+        public static void ShowMemoryInfo(bool showPeak = false)
         {
             // Refresh the current process property values.
             currentProc.Refresh();
@@ -416,6 +461,7 @@ namespace WebCrawler
                     Verbosity_Level.E_Notice, currentProc.PeakPagedMemorySize64 / 1024);
                 Message.ShowMessage("Peak virtual memory usage of the process: {0}",
                     Verbosity_Level.E_Notice, currentProc.PeakVirtualMemorySize64 / 1024);
+                Message.ShowMessage("***************************************************", Verbosity_Level.E_Notice);
             }
         }
     }
